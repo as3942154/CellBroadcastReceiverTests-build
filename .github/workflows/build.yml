@@ -5,59 +5,129 @@ on:
 
 jobs:
   build:
+    name: Build CellBroadcastReceiverTests
     runs-on: ubuntu-latest
 
     container:
       image: andreaji/android:4.4-kitkat
 
     steps:
-      - name: Install repo
+      - name: Check build environment
         run: |
-          curl -L https://storage.googleapis.com/git-repo-downloads/repo \
-            -o /usr/local/bin/repo
-          chmod +x /usr/local/bin/repo
+          echo "Java:"
+          java -version
+          echo
+          echo "Java home:"
+          echo "$JAVA_HOME"
+          echo
+          echo "Working directory:"
+          pwd
+          echo
+          echo "User:"
+          id
+
+      - name: Install repo tool
+        run: |
+          mkdir -p /tmp/repo-bin
+          curl -L \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o /tmp/repo-bin/repo
+          chmod +x /tmp/repo-bin/repo
+          /tmp/repo-bin/repo --version
 
       - name: Configure git
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@example.invalid"
+          git config --global color.ui false
+
+      - name: Prepare CM11 workspace
+        run: |
+          mkdir -p "$HOME/cm11"
+          cd "$HOME/cm11"
+          pwd
 
       - name: Initialize CM11
+        working-directory: /github/home/cm11
         run: |
-          mkdir -p /workspace/cm11
-          cd /workspace/cm11
-          repo init \
+          /tmp/repo-bin/repo init \
             --depth=1 \
+            --no-repo-verify \
             -u https://github.com/CyanogenMod/android.git \
             -b cm-11.0
 
-      - name: Sync CM11
+      - name: Sync CM11 source
+        working-directory: /github/home/cm11
         run: |
-          cd /workspace/cm11
-          repo sync \
+          /tmp/repo-bin/repo sync \
             -c \
+            --force-sync \
             --no-tags \
             --no-clone-bundle \
             -j2
 
-      - name: Build test APK
+      - name: Verify CellBroadcastReceiver source
+        working-directory: /github/home/cm11
         run: |
-          cd /workspace/cm11
+          test -f packages/apps/CellBroadcastReceiver/tests/testapp/Android.mk
+          test -f packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestBroadcastActivity.java
+          test -f packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestMessages.java
+
+      - name: Prepare build environment
+        working-directory: /github/home/cm11
+        run: |
           source build/envsetup.sh
           lunch cm_full-eng
-          mmm packages/apps/CellBroadcastReceiver/tests
 
-      - name: Locate APK
+      - name: Build CellBroadcastReceiverTests
+        working-directory: /github/home/cm11
         run: |
-          find /workspace/cm11/out \
-            -type f \
+          source build/envsetup.sh
+          lunch cm_full-eng
+          make -j2 CellBroadcastReceiverTests
+
+      - name: Locate generated APK
+        working-directory: /github/home/cm11
+        run: |
+          echo "Searching for CellBroadcastReceiverTests.apk..."
+          find out -type f \
             -name "CellBroadcastReceiverTests.apk" \
             -print
 
-      - name: Upload APK
+      - name: Verify generated APK
+        working-directory: /github/home/cm11
+        run: |
+          APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "ERROR: CellBroadcastReceiverTests.apk was not produced."
+            exit 1
+          fi
+
+          echo "APK found:"
+          echo "$APK"
+
+          echo
+          echo "APK details:"
+          ls -lh "$APK"
+          file "$APK"
+
+      - name: Copy APK to artifact directory
+        working-directory: /github/home/cm11
+        run: |
+          mkdir -p "$HOME/artifacts"
+
+          APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
+
+          cp "$APK" \
+            "$HOME/artifacts/CellBroadcastReceiverTests.apk"
+
+          echo "Artifact:"
+          ls -lh "$HOME/artifacts/CellBroadcastReceiverTests.apk"
+
+      - name: Upload CellBroadcastReceiverTests.apk
         uses: actions/upload-artifact@v4
         with:
           name: CellBroadcastReceiverTests
-          path: /workspace/cm11/out/**/CellBroadcastReceiverTests.apk
+          path: /github/home/artifacts/CellBroadcastReceiverTests.apk
           if-no-files-found: error
-          
+          retention-days: 7
