@@ -10,30 +10,30 @@ jobs:
 
     container:
       image: andreaji/android:4.4-kitkat
+      options: --user root
 
     steps:
       - name: Check build environment
         run: |
-          echo "Java:"
+          echo "=== Java ==="
           java -version
           echo
-          echo "Java home:"
+          echo "=== User ==="
+          id
+          echo
+          echo "=== JAVA_HOME ==="
           echo "$JAVA_HOME"
           echo
-          echo "Working directory:"
-          pwd
-          echo
-          echo "User:"
-          id
+          echo "=== HOME ==="
+          echo "$HOME"
 
-      - name: Install repo tool
+      - name: Install repo
         run: |
-          mkdir -p /tmp/repo-bin
           curl -L \
             https://storage.googleapis.com/git-repo-downloads/repo \
-            -o /tmp/repo-bin/repo
-          chmod +x /tmp/repo-bin/repo
-          /tmp/repo-bin/repo --version
+            -o /usr/local/bin/repo
+          chmod +x /usr/local/bin/repo
+          repo --version
 
       - name: Configure git
         run: |
@@ -41,25 +41,22 @@ jobs:
           git config --global user.email "actions@example.invalid"
           git config --global color.ui false
 
-      - name: Prepare CM11 workspace
-        run: |
-          mkdir -p "$HOME/cm11"
-          cd "$HOME/cm11"
-          pwd
-
       - name: Initialize CM11
-        working-directory: /github/home/cm11
         run: |
-          /tmp/repo-bin/repo init \
+          mkdir -p /workspace/cm11
+          cd /workspace/cm11
+
+          repo init \
             --depth=1 \
             --no-repo-verify \
             -u https://github.com/CyanogenMod/android.git \
             -b cm-11.0
 
-      - name: Sync CM11 source
-        working-directory: /github/home/cm11
+      - name: Sync CM11
         run: |
-          /tmp/repo-bin/repo sync \
+          cd /workspace/cm11
+
+          repo sync \
             -c \
             --force-sync \
             --no-tags \
@@ -67,37 +64,58 @@ jobs:
             -j2
 
       - name: Verify CellBroadcastReceiver source
-        working-directory: /github/home/cm11
         run: |
-          test -f packages/apps/CellBroadcastReceiver/tests/testapp/Android.mk
-          test -f packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestBroadcastActivity.java
-          test -f packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestMessages.java
+          cd /workspace/cm11
 
-      - name: Prepare build environment
-        working-directory: /github/home/cm11
+          echo "Checking CellBroadcastReceiver test files..."
+
+          test -f \
+            packages/apps/CellBroadcastReceiver/tests/Android.mk
+
+          test -f \
+            packages/apps/CellBroadcastReceiver/tests/testapp/Android.mk
+
+          test -f \
+            packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestBroadcastActivity.java
+
+          test -f \
+            packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestMessages.java
+
+          echo "CellBroadcastReceiver test source found."
+
+      - name: Prepare Android build environment
         run: |
+          cd /workspace/cm11
+
           source build/envsetup.sh
           lunch cm_full-eng
 
       - name: Build CellBroadcastReceiverTests
-        working-directory: /github/home/cm11
         run: |
+          cd /workspace/cm11
+
           source build/envsetup.sh
           lunch cm_full-eng
+
           make -j2 CellBroadcastReceiverTests
 
-      - name: Locate generated APK
-        working-directory: /github/home/cm11
+      - name: Find generated APK
         run: |
-          echo "Searching for CellBroadcastReceiverTests.apk..."
-          find out -type f \
+          cd /workspace/cm11
+
+          echo "Searching for APK..."
+
+          find out \
+            -type f \
             -name "CellBroadcastReceiverTests.apk" \
             -print
 
-      - name: Verify generated APK
-        working-directory: /github/home/cm11
+      - name: Verify APK
         run: |
+          cd /workspace/cm11
+
           APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
+
           if [ -z "$APK" ]; then
             echo "ERROR: CellBroadcastReceiverTests.apk was not produced."
             exit 1
@@ -107,27 +125,28 @@ jobs:
           echo "$APK"
 
           echo
-          echo "APK details:"
+          echo "APK information:"
           ls -lh "$APK"
           file "$APK"
 
-      - name: Copy APK to artifact directory
-        working-directory: /github/home/cm11
+      - name: Prepare artifact
         run: |
-          mkdir -p "$HOME/artifacts"
+          cd /workspace/cm11
+
+          mkdir -p /tmp/artifacts
 
           APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
 
           cp "$APK" \
-            "$HOME/artifacts/CellBroadcastReceiverTests.apk"
+            /tmp/artifacts/CellBroadcastReceiverTests.apk
 
-          echo "Artifact:"
-          ls -lh "$HOME/artifacts/CellBroadcastReceiverTests.apk"
+          echo "Prepared:"
+          ls -lh /tmp/artifacts/CellBroadcastReceiverTests.apk
 
-      - name: Upload CellBroadcastReceiverTests.apk
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CellBroadcastReceiverTests
-          path: /github/home/artifacts/CellBroadcastReceiverTests.apk
+          path: /tmp/artifacts/CellBroadcastReceiverTests.apk
           if-no-files-found: error
           retention-days: 7
