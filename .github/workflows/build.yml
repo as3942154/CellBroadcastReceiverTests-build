@@ -15,24 +15,30 @@ jobs:
     steps:
       - name: Check build environment
         run: |
-          echo "=== Java ==="
-          java -version
-          echo
-          echo "=== User ==="
+          echo "=== USER ==="
           id
+          echo
+          echo "=== JAVA ==="
+          java -version
           echo
           echo "=== JAVA_HOME ==="
           echo "$JAVA_HOME"
           echo
-          echo "=== HOME ==="
-          echo "$HOME"
+          echo "=== PYTHON ==="
+          python --version || true
+          echo
+          echo "=== GIT ==="
+          git --version
 
-      - name: Install repo
+      - name: Install Python 2 compatible repo
         run: |
           curl -L \
-            https://storage.googleapis.com/git-repo-downloads/repo \
+            https://raw.githubusercontent.com/GerritCodeReview/git-repo/v1.12.31/repo \
             -o /usr/local/bin/repo
+
           chmod +x /usr/local/bin/repo
+
+          echo "=== REPO VERSION ==="
           repo --version
 
       - name: Configure git
@@ -41,33 +47,35 @@ jobs:
           git config --global user.email "actions@example.invalid"
           git config --global color.ui false
 
-      - name: Initialize CM11
+      - name: Create CM11 workspace
         run: |
           mkdir -p /workspace/cm11
           cd /workspace/cm11
+          pwd
 
+      - name: Initialize CM11
+        working-directory: /workspace/cm11
+        run: |
           repo init \
             --depth=1 \
             --no-repo-verify \
+            --repo-url=https://gerrit.googlesource.com/git-repo \
+            --repo-rev=v1.12.31 \
             -u https://github.com/CyanogenMod/android.git \
             -b cm-11.0
 
-      - name: Sync CM11
+      - name: Sync CM11 source
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
-
           repo sync \
-            -c \
-            --force-sync \
-            --no-tags \
             --no-clone-bundle \
+            --no-tags \
             -j2
 
       - name: Verify CellBroadcastReceiver source
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
-
-          echo "Checking CellBroadcastReceiver test files..."
+          echo "=== Checking CellBroadcastReceiver ==="
 
           test -f \
             packages/apps/CellBroadcastReceiver/tests/Android.mk
@@ -81,72 +89,79 @@ jobs:
           test -f \
             packages/apps/CellBroadcastReceiver/tests/testapp/src/com/android/cellbroadcastreceiver/tests/SendTestMessages.java
 
-          echo "CellBroadcastReceiver test source found."
+          echo
+          echo "CellBroadcastReceiver test source is present."
 
-      - name: Prepare Android build environment
+      - name: Initialize Android build environment
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
-
           source build/envsetup.sh
           lunch cm_full-eng
 
       - name: Build CellBroadcastReceiverTests
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
-
           source build/envsetup.sh
           lunch cm_full-eng
-
           make -j2 CellBroadcastReceiverTests
 
-      - name: Find generated APK
+      - name: Find CellBroadcastReceiverTests.apk
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
+          echo "=== Searching for generated APK ==="
 
-          echo "Searching for APK..."
-
-          find out \
+          APK="$(find out \
             -type f \
             -name "CellBroadcastReceiverTests.apk" \
-            -print
-
-      - name: Verify APK
-        run: |
-          cd /workspace/cm11
-
-          APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
+            | head -n 1)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: CellBroadcastReceiverTests.apk was not produced."
+            echo
+            echo "ERROR: CellBroadcastReceiverTests.apk was not generated."
+            echo
+            echo "APK search results:"
+            find out \
+              -type f \
+              -iname "*CellBroadcast*" \
+              -print || true
             exit 1
           fi
 
-          echo "APK found:"
+          echo
+          echo "APK FOUND:"
           echo "$APK"
 
           echo
-          echo "APK information:"
+          echo "APK DETAILS:"
           ls -lh "$APK"
           file "$APK"
 
-      - name: Prepare artifact
+      - name: Prepare APK artifact
+        working-directory: /workspace/cm11
         run: |
-          cd /workspace/cm11
+          mkdir -p /workspace/artifacts
 
-          mkdir -p /tmp/artifacts
+          APK="$(find out \
+            -type f \
+            -name "CellBroadcastReceiverTests.apk" \
+            | head -n 1)"
 
-          APK="$(find out -type f -name "CellBroadcastReceiverTests.apk" | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK disappeared before artifact preparation."
+            exit 1
+          fi
 
           cp "$APK" \
-            /tmp/artifacts/CellBroadcastReceiverTests.apk
+            /workspace/artifacts/CellBroadcastReceiverTests.apk
 
-          echo "Prepared:"
-          ls -lh /tmp/artifacts/CellBroadcastReceiverTests.apk
+          echo "=== ARTIFACT ==="
+          ls -lh \
+            /workspace/artifacts/CellBroadcastReceiverTests.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CellBroadcastReceiverTests
-          path: /tmp/artifacts/CellBroadcastReceiverTests.apk
+          path: /workspace/artifacts/CellBroadcastReceiverTests.apk
           if-no-files-found: error
           retention-days: 7
