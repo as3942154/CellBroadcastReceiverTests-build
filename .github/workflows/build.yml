@@ -1,0 +1,63 @@
+name: Build CM11 CellBroadcastReceiverTests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: andreaji/android:4.4-kitkat
+
+    steps:
+      - name: Install repo
+        run: |
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo \
+            -o /usr/local/bin/repo
+          chmod +x /usr/local/bin/repo
+
+      - name: Configure git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@example.invalid"
+
+      - name: Initialize CM11
+        run: |
+          mkdir -p /workspace/cm11
+          cd /workspace/cm11
+          repo init \
+            --depth=1 \
+            -u https://github.com/CyanogenMod/android.git \
+            -b cm-11.0
+
+      - name: Sync CM11
+        run: |
+          cd /workspace/cm11
+          repo sync \
+            -c \
+            --no-tags \
+            --no-clone-bundle \
+            -j2
+
+      - name: Build test APK
+        run: |
+          cd /workspace/cm11
+          source build/envsetup.sh
+          lunch cm_full-eng
+          mmm packages/apps/CellBroadcastReceiver/tests
+
+      - name: Locate APK
+        run: |
+          find /workspace/cm11/out \
+            -type f \
+            -name "CellBroadcastReceiverTests.apk" \
+            -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CellBroadcastReceiverTests
+          path: /workspace/cm11/out/**/CellBroadcastReceiverTests.apk
+          if-no-files-found: error
+          
